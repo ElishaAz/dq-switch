@@ -21,7 +21,9 @@ class Main:
         self.main_keyboard = config["Main"].getint("Main")
         self.alt_keyboard = config["Main"].getint("Alternative")
 
-        self.switcher: KeyboardSwitcher = get_keyboard_switcher()(self.main_keyboard, self.alt_keyboard)
+        self.desktop = config["Main"].get("Desktop", os.environ.get('XDG_CURRENT_DESKTOP'))
+
+        self.switcher: KeyboardSwitcher = get_keyboard_switcher(self.desktop)(self.main_keyboard, self.alt_keyboard)
 
         self.meta_delay = config["Main"].getfloat("MetaDelay",0.0)
 
@@ -149,9 +151,11 @@ class Main:
 
 def main():
     parser = ArgumentParser(prog="dq-switch", description="Dvorak QWERTY switcher")
+
     parser.add_argument('-m','--main',type=int, help="The main keyboard layout. This will override any value in the config file.")
     parser.add_argument('-a','--alternative',type=int, help="The alternative keyboard layout. This layout will be enabled whenever Ctl, Alt or Meta are pressed. This will override any value in the config file.")
-    parser.add_argument('-c','--config',type=str, help="Path to the config file.")
+    parser.add_argument('-d','--desktop',type=str, help="The desktop environment. Either 'KDE' or 'GNOME'. This will override any value in the config file. Default is auto-detect.")
+    parser.add_argument('-c','--config',type=str, help="Path to the config file. Defaults to the config file in the same directory as dq-switch.py")
 
     args = parser.parse_args()
     print(args)
@@ -171,6 +175,9 @@ def main():
 
     if args.alternative is not None:
         config.set("Main", "Alternative", str(args.alternative))
+
+    if args.desktop is not None:
+        config.set("Main", "Desktop", str(args.desktop))
 
     # print config
     # s = StringIO()
