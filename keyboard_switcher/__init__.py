@@ -4,7 +4,7 @@ from .keyboard_switcher import KeyboardSwitcher as KeyboardSwitcher
 
 from os import environ
 
-def get_keyboard_switcher(environment = environ.get('XDG_CURRENT_DESKTOP')) -> Type[KeyboardSwitcher]:
+def get_keyboard_switcher(environment: str = environ.get('XDG_CURRENT_DESKTOP')) -> Type[KeyboardSwitcher]:
     environment = environment.lower()
     if 'kde' in  environment:
         from .keyboard_switcher_kde import KeyboardSwitcherKDE
@@ -12,3 +12,8 @@ def get_keyboard_switcher(environment = environ.get('XDG_CURRENT_DESKTOP')) -> T
     if 'gnome' in  environment:
         from .keyboard_switcher_gnome import KeyboardSwitcherGnome
         return KeyboardSwitcherGnome
+    if 'hyprland' in  environment:
+        from .keyboard_switcher_hyprland import KeyboardSwitcherHyprland
+        return KeyboardSwitcherHyprland
+
+    raise ValueError(f"Unsupported environment: {environment}")
