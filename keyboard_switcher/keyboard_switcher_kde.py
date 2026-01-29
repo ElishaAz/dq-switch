@@ -12,7 +12,7 @@ class KeyboardSwitcherKDE(KeyboardSwitcher):
         os.system(F"qdbus org.kde.keyboard /Layouts org.kde.KeyboardLayouts.setLayout {id} > /dev/null")
 
     def get_current_keyboard(self) -> Optional[int]:
-        proc = os.popen(F"qdbus org.kde.keyboard /Layouts org.kde.KeyboardLayouts.getLayout")
+        proc = os.popen("qdbus org.kde.keyboard /Layouts org.kde.KeyboardLayouts.getLayout")
         val = proc.readline()
         if val == '':
             return None
