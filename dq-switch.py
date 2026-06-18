@@ -16,7 +16,8 @@ def _list_from_config(string: str):
 
 
 class Main:
-    def __init__(self, config: ConfigParser):
+    def __init__(self, config: ConfigParser, verbose: bool):
+        self.verbose = verbose
         self.main_keyboard = config["Main"].getint("Main")
         self.alt_keyboard = config["Main"].getint("Alternative")
         self.desktop = config["Main"].get("Desktop", os.environ.get('XDG_CURRENT_DESKTOP'))
@@ -37,6 +38,8 @@ class Main:
         self.switcher.switch_to_default()
 
     def on_press(self, key, keyboard_id):
+        if self.verbose: print(F"on_press({key}, {keyboard_id})")
+
         if key == evdev_listener.KEY_F2: self.F2_DOWN = True
         if key == evdev_listener.KEY_F4: self.F4_DOWN = True
 
@@ -57,6 +60,8 @@ class Main:
         return False
 
     def on_release(self, key, keyboard_id):
+        if self.verbose: print(F"on_release({key}, {keyboard_id})")
+
         if key == evdev_listener.KEY_F2: self.F2_DOWN = False
         if key == evdev_listener.KEY_F4: self.F4_DOWN = False
 
@@ -70,6 +75,8 @@ class Main:
         self.update_active_keyboard()
 
     def on_device(self, keyboard_id, path, added):
+        if self.verbose: print(F"on_device({keyboard_id}, {path}, {added})")
+
         if not added:  # Removed
             to_remove = [(k, kbd) for k, kbd in self.keys if kbd == keyboard_id]
             for k in to_remove:
@@ -86,8 +93,10 @@ class Main:
 
         need_alternative = len(self.keys) > 0
         if self.switcher.alternative_is_on() and not need_alternative:
+            if self.verbose: print("Switching to default")
             self.switcher.switch_to_default()
         if not self.switcher.alternative_is_on() and need_alternative:
+            if self.verbose: print("Switching to alternative")
             self.switcher.switch_to_alternative()
 
     def handler(self, state: Dict[str, Union[int, str, None]]):
@@ -120,6 +129,7 @@ def main():
                              "This will override any value in the config file. Default is auto-detect.")
     parser.add_argument('-c', '--config', type=str,
                         help="Path to the config file. Defaults to the config file in the same directory as dq-switch.py")
+    parser.add_argument('-v', '--verbose', action='store_true', )
 
     args = parser.parse_args()
     print(args)
@@ -140,7 +150,7 @@ def main():
     if args.desktop is not None:
         config.set("Main", "Desktop", str(args.desktop))
 
-    main = Main(config)
+    main = Main(config, args.verbose)
     main.main()
 
 
