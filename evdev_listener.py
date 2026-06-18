@@ -1,8 +1,11 @@
+import errno
+import time
 from glob import glob
 from select import select
 from typing import Callable, Optional
 
 from evdev import InputDevice, InputEvent
+from inotify_simple import INotify, flags
 
 KEY_LEFTCTRL = 29
 KEY_RIGHTCTRL = 97
@@ -39,6 +42,11 @@ class EVDevListener:
             if self.device_listener(fd, device.path, True):
                 self.run = False
 
+        self.inotify = INotify()
+        wd = self.inotify.add_watch("/dev/input", flags.CREATE | flags.MOVED_TO | flags.DELETE)
+
+        self.select_fds = list(self.devices.keys()) + [self.inotify.fd]
+
     def reload_devices(self):
         old_paths = {dev.path: dev for dev in self.devices.values()}
         new_paths = set(glob(self.device_glob, recursive=True))
@@ -57,8 +65,9 @@ class EVDevListener:
                 self.run = False
                 return
 
-        added_devices = map(InputDevice, added)
-        self.devices.update(added_devices)
+        added_devices = [InputDevice(path) for path in added]
+        self.devices.update({dev.fd: dev for dev in added_devices})
+        self.select_fds = list(self.devices.keys()) + [self.inotify.fd]
 
         for device in added_devices:
             if self.device_listener(device.fd, device.path, True):
@@ -67,8 +76,15 @@ class EVDevListener:
 
     def main(self):
         while self.run:
-            r, w, x = select(self.devices, [], [])
+            r, w, x = select(self.select_fds, [], [])
             for fd in r:
+                if fd == self.inotify.fd:
+                    if any(event.mask & (flags.CREATE | flags.MOVED_TO | flags.DELETE) for event in
+                           self.inotify.read(fd)):
+                        time.sleep(0.1) # we need to wait a bit for udev to add the device
+                        self.reload_devices()
+                    break
+
                 event: InputEvent
                 try:
                     for event in self.devices[fd].read():
@@ -81,10 +97,12 @@ class EVDevListener:
                                 if self.keyup_listener(event.code, fd):
                                     self.run = False
                                     break
-                except OSError:
-                    # Device disconnected
-                    self.reload_devices()
-                    break # Break back into the main while loop, which will re-run select (as self.run is still True)
+                except OSError as e:
+                    if e.errno == errno.ENODEV:
+                        # Device disconnected, will be caught by inotify
+                        pass
+                    else:
+                        raise
 
                 if not self.run:
                     break
