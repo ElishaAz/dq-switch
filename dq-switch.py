@@ -88,7 +88,7 @@ class Main:
         if self.switcher.alternative_is_on() and not need_alternative:
             self.switcher.switch_to_default()
         if not self.switcher.alternative_is_on() and need_alternative:
-            self.switcher.switch_to_default()
+            self.switcher.switch_to_alternative()
 
     def handler(self, state: Dict[str, Union[int, str, None]]):
         if state['process_name'] in self.ALWAYS_DEFAULT:
