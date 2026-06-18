@@ -15,5 +15,8 @@ def get_keyboard_switcher(environment: str = environ.get('XDG_CURRENT_DESKTOP'))
     if 'hyprland' in  environment:
         from .keyboard_switcher_hyprland import KeyboardSwitcherHyprland
         return KeyboardSwitcherHyprland
+    if 'sway' in environment:
+        from .keyboard_switcher_sway import KeyboardSwitcherSway
+        return KeyboardSwitcherSway
 
     raise ValueError(f"Unsupported environment: {environment}")
