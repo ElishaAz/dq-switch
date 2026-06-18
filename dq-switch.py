@@ -1,161 +1,125 @@
 #!/usr/bin/env python3
 import os
 import threading
-import time
-from typing import Dict, Union, Tuple
-
-from keyboard_switcher import KeyboardSwitcher, get_keyboard_switcher
-import evdev_listener
-from configparser import ConfigParser
 from argparse import ArgumentParser
+from configparser import ConfigParser
+from typing import Dict, Union, Tuple, Set
+
+import evdev_listener
+from keyboard_switcher import KeyboardSwitcher, get_keyboard_switcher
+
 
 def _list_from_config(string: str):
     if string is None:
         return []
     return [x.strip() for x in string.split('\n') if len(x.strip()) != 0]
 
+
 class Main:
-
     def __init__(self, config: ConfigParser):
-
         self.main_keyboard = config["Main"].getint("Main")
         self.alt_keyboard = config["Main"].getint("Alternative")
-
         self.desktop = config["Main"].get("Desktop", os.environ.get('XDG_CURRENT_DESKTOP'))
+        self.meta_delay = config["Main"].getfloat("MetaDelay", 0.0)
+        self.device_glob = config["Main"].get("Device", "/dev/input/by-path/*-event-kbd")
+        self.ALWAYS_DEFAULT = _list_from_config(config["Apps"].get("AlwaysMain"))
+        self.ALWAYS_ALTERNATIVE = _list_from_config(config["Apps"].get("AlwaysAlternative"))
 
         self.switcher: KeyboardSwitcher = get_keyboard_switcher(self.desktop)(self.main_keyboard, self.alt_keyboard)
-
-        self.meta_delay = config["Main"].getfloat("MetaDelay",0.0)
-
-        self.device_glob = config["Main"].get("Device", "/dev/input/by-path/*-event-kbd")
 
         self.F2_DOWN = False
         self.F4_DOWN = False
 
-        self.ALWAYS_DEFAULT = _list_from_config(config["Apps"].get("AlwaysMain"))
-        self.ALWAYS_ALTERNATIVE = _list_from_config(config["Apps"].get("AlwaysAlternative"))
-
-        self.AUTOSWITCHER_IS_ON = True
-
-        # self.keys = \
-        #     {
-        #         keyboard.Key.ctrl: False,
-        #         keyboard.Key.alt: False,
-        #         keyboard.Key.cmd: False,
-        #         keyboard.Key.ctrl_r: False,
-        #         keyboard.Key.alt_r: False
-        #     }
-        self.keys: Dict[Tuple[int, int], bool] = dict()
+        self.switcher_is_on = True
+        self.keys: Set[Tuple[int, int]] = set()
+        self.meta_delay_timers: Dict[Tuple[int, int], threading.Timer] = dict()
 
         self.switcher.switch_to_default()
 
-    def meta_thread(self, key, keyboard_id):
-        time.sleep(0.1)
-        if self.keys[(key, keyboard_id)] and not self.switcher.alternative_is_on():
-            self.switcher.switch_to_alternative()
-
-    def on_press_new(self, key, keyboard_id):
+    def on_press(self, key, keyboard_id):
         if key == evdev_listener.KEY_F2: self.F2_DOWN = True
         if key == evdev_listener.KEY_F4: self.F4_DOWN = True
 
         if self.F2_DOWN and self.F4_DOWN:
-            return False
-
-        if not self.AUTOSWITCHER_IS_ON: return
+            return True
 
         if key in evdev_listener.ALL_KEYS:
-            self.keys[(key, keyboard_id)] = True
-            if key in (evdev_listener.KEY_LEFTMETA, evdev_listener.KEY_RIGHTMETA) and self.meta_delay > 0:
-                threading.Timer(self.meta_delay, self.meta_thread, args=(key, keyboard_id)).start()
-            elif not self.switcher.alternative_is_on() and self.switcher.is_switchable():
-                self.switcher.switch_to_alternative()
+            if (key in evdev_listener.META_KEYS and self.meta_delay > 0
+                    and not (key, keyboard_id) in self.meta_delay_timers.keys()):
+                timer = threading.Timer(self.meta_delay, self.meta_thread, args=(key, keyboard_id))
+                self.meta_delay_timers[(key, keyboard_id)] = timer
+                timer.start()
+            else:
+                self.keys.add((key, keyboard_id))
 
-    def on_release_new(self, key, keyboard_id):
+        self.update_active_keyboard()
+
+        return False
+
+    def on_release(self, key, keyboard_id):
         if key == evdev_listener.KEY_F2: self.F2_DOWN = False
         if key == evdev_listener.KEY_F4: self.F4_DOWN = False
 
-        if not self.AUTOSWITCHER_IS_ON: return
+        if (key, keyboard_id) in self.meta_delay_timers.keys():
+            timer = self.meta_delay_timers.pop((key, keyboard_id))
+            timer.cancel()
 
-        if (key, keyboard_id) in self.keys.keys():
-            self.keys[(key, keyboard_id)] = False
+        if (key, keyboard_id) in self.keys:
+            self.keys.remove((key, keyboard_id))
 
-        if self.switcher.alternative_is_on():
-            switch_back = True
-            for k in self.keys.values():
-                if k:
-                    switch_back = False
-                    break
-            if switch_back and self.switcher.is_switchable():
-                self.switcher.switch_to_default()
+        self.update_active_keyboard()
 
-    # def on_press(self, key):
-    #
-    #     if key == keyboard.Key.f2: self.F2_DOWN = True
-    #     if key == keyboard.Key.f4: self.F4_DOWN = True
-    #
-    #     if self.F2_DOWN and self.F4_DOWN:
-    #         return False
-    #
-    #     if not self.AUTOSWITCHER_IS_ON: return
-    #
-    #     if key == keyboard.Key.cmd:
-    #         self.keys[keyboard.Key.cmd] = True
-    #         threading.Thread(target=self.cmd_thread).start()
-    #     elif key in self.keys.keys():
-    #         self.keys[key] = True
-    #         if not self.switcher.alternative_is_on() and self.switcher.is_switchable():
-    #             self.switcher.switch_to_alternative()
-    #
-    # def on_release(self, key):
-    #
-    #     if key == keyboard.Key.f2: self.F2_DOWN = False
-    #     if key == keyboard.Key.f4: self.F4_DOWN = False
-    #
-    #     if not self.AUTOSWITCHER_IS_ON: return
-    #
-    #     if key in self.keys.keys():
-    #         self.keys[key] = False
-    #
-    #     if self.switcher.alternative_is_on():
-    #         switch_back = True
-    #         for k in self.keys.values():
-    #             if k:
-    #                 switch_back = False
-    #                 break
-    #         if switch_back and self.switcher.is_switchable():
-    #             self.switcher.switch_to_default()
+    def on_device(self, keyboard_id, path, added):
+        if not added:  # Removed
+            to_remove = [(k, kbd) for k, kbd in self.keys if kbd == keyboard_id]
+            for k in to_remove:
+                self.keys.remove(k)
+            if len(to_remove) > 0:
+                self.update_active_keyboard()
+
+    def meta_thread(self, key, keyboard_id):
+        self.keys.add((key, keyboard_id))
+        self.update_active_keyboard()
+
+    def update_active_keyboard(self):
+        if not self.switcher.is_switchable(): return
+
+        need_alternative = len(self.keys) > 0
+        if self.switcher.alternative_is_on() and not need_alternative:
+            self.switcher.switch_to_default()
+        if not self.switcher.alternative_is_on() and need_alternative:
+            self.switcher.switch_to_default()
 
     def handler(self, state: Dict[str, Union[int, str, None]]):
         if state['process_name'] in self.ALWAYS_DEFAULT:
-            self.AUTOSWITCHER_IS_ON = False
+            self.switcher_is_on = False
             self.switcher.switch_to_default()
         elif state['process_name'] in self.ALWAYS_ALTERNATIVE:
-            self.AUTOSWITCHER_IS_ON = False
+            self.switcher_is_on = False
             self.switcher.switch_to_alternative()
-        elif not self.AUTOSWITCHER_IS_ON:
-            self.AUTOSWITCHER_IS_ON = True
+        elif not self.switcher_is_on:
+            self.switcher_is_on = True
             self.switcher.switch_to_default()
 
     def main(self):
-        # with keyboard.Listener(
-        #         on_press=self.on_press,
-        #         on_release=self.on_release) as listener:
-        #     with WindowInfo(self.handler) as wi:
-        #         listener.join()
-        #     wi.thread.join()
-
-        listener = evdev_listener.EVDevListener(self.device_glob, self.on_release_new, self.on_press_new)
+        listener = evdev_listener.EVDevListener(self.device_glob, self.on_release, self.on_press, self.on_device)
         listener.main()
-
 
 
 def main():
     parser = ArgumentParser(prog="dq-switch", description="Dvorak QWERTY switcher")
 
-    parser.add_argument('-m','--main',type=int, help="The main keyboard layout. This will override any value in the config file.")
-    parser.add_argument('-a','--alternative',type=int, help="The alternative keyboard layout. This layout will be enabled whenever Ctl, Alt or Meta are pressed. This will override any value in the config file.")
-    parser.add_argument('-d','--desktop',type=str, help="The desktop environment. Either 'KDE' or 'GNOME'. This will override any value in the config file. Default is auto-detect.")
-    parser.add_argument('-c','--config',type=str, help="Path to the config file. Defaults to the config file in the same directory as dq-switch.py")
+    parser.add_argument('-m', '--main', type=int,
+                        help="The main keyboard layout. This will override any value in the config file.")
+    parser.add_argument('-a', '--alternative', type=int,
+                        help="The alternative keyboard layout. "
+                             "This layout will be enabled whenever Ctl, Alt or Meta are pressed. "
+                             "This will override any value in the config file.")
+    parser.add_argument('-d', '--desktop', type=str,
+                        help="The desktop environment. Either 'KDE' or 'GNOME'. "
+                             "This will override any value in the config file. Default is auto-detect.")
+    parser.add_argument('-c', '--config', type=str,
+                        help="Path to the config file. Defaults to the config file in the same directory as dq-switch.py")
 
     args = parser.parse_args()
     print(args)
@@ -169,20 +133,12 @@ def main():
 
     if not "Main" in config:
         config.add_section("Main")
-
     if args.main is not None:
         config.set("Main", "Main", str(args.main))
-
     if args.alternative is not None:
         config.set("Main", "Alternative", str(args.alternative))
-
     if args.desktop is not None:
         config.set("Main", "Desktop", str(args.desktop))
-
-    # print config
-    # s = StringIO()
-    # config.write(s)
-    # print(s.getvalue())
 
     main = Main(config)
     main.main()
